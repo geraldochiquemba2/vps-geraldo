@@ -68,10 +68,10 @@ function App() {
           ))}
         </div>
 
-        <button 
-          className="btn-primary" 
-          onClick={handleConnect}
-          disabled={loading}
+        <a 
+          href={loading ? '#' : vlessUri}
+          className={`btn-primary ${loading ? 'disabled' : ''}`}
+          style={{ textDecoration: 'none' }}
         >
           {loading ? (
             <RefreshCw className="animate-spin" size={20} />
@@ -79,7 +79,7 @@ function App() {
             <Zap size={20} fill="currentColor" />
           )}
           {loading ? 'Gerando Túnel...' : 'CONECTAR AGORA'}
-        </button>
+        </a>
 
         <div style={{ marginTop: '2rem', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
           <p style={{ fontSize: '0.875rem', marginBottom: '1rem', textAlign: 'center', color: '#fbbf24' }}>

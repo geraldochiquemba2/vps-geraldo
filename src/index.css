@@ -135,7 +135,7 @@ h1 {
 .btn-primary {
   width: 100%;
   background: linear-gradient(135deg, var(--primary), #7c3aed);
-  color: white;
+  color: white !important;
   border: none;
   border-radius: 1rem;
   padding: 1.25rem;
@@ -148,19 +148,12 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
+  text-decoration: none;
 }
 
-.btn-primary:hover {
-  transform: scale(1.02);
-  box-shadow: 0 20px 25px -5px var(--primary-glow);
-}
-
-.btn-primary:active {
-  transform: scale(0.98);
-}
-
-.btn-primary:disabled {
+.btn-primary.disabled {
   opacity: 0.5;
+  pointer-events: none;
   cursor: not-allowed;
   transform: none;
 }
