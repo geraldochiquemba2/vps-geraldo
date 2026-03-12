@@ -18,11 +18,11 @@ export const OPERATORS = {
 
 export const generateVLESSUri = (operatorKey) => {
   const operator = OPERATORS[operatorKey];
-  const uuid = 'ad6802e8-d698-4c6e-8121-50e588fbc8d3'; // Mesmo ID do Worker
+  const uuid = 'ad6802e8-d698-4c6e-8121-50e588fbc8d3';
   
-  // Usar o hostname atual do site automaticamente
-  const address = window.location.hostname;
-  const name = `Túnel_Unificado_${operator.name}`;
+  // O Worker real que tem acesso ao cloudflare:sockets
+  const address = 'ancient-butterfly-390a.staqw.workers.dev';
+  const name = `Túnel_Angola_${operator.name}`;
   
   const params = new URLSearchParams({
     encryption: 'none',
