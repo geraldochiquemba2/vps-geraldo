@@ -1,39 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Shield, Zap, Globe, Copy, Check, ExternalLink, RefreshCw } from 'lucide-react';
-import { OPERATORS, generateVLESSUri, getDeepLink } from './utils/vless';
+import { Zap, Globe, Copy, Check, RefreshCw } from 'lucide-react';
+import { SERVERS, generateVLESSUri } from './utils/vless';
 
 function App() {
   const [selectedOperator, setSelectedOperator] = useState('UNITEL');
-  const [vlessUri, setVlessUri] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [showModal, setShowModal] = useState(false);
+  const [selectedServer, setSelectedServer] = useState(null);
+  const [copied, setCopied] = useState(null);
+  const [showQR, setShowQR] = useState(null);
 
-  // Gerar config inicial
-  useEffect(() => {
-    handleGenerate();
-  }, [selectedOperator]);
+  const filteredServers = SERVERS.filter(s => s.operator === selectedOperator);
 
-  const handleGenerate = () => {
-    setLoading(true);
-    // Simular um pequeno delay para efeito de "calculando túnel"
-    setTimeout(() => {
-      const uri = generateVLESSUri(selectedOperator);
-      setVlessUri(uri);
-      setLoading(false);
-    }, 600);
-  };
-
-  const handleConnect = () => {
-    const deepLink = getDeepLink(vlessUri);
-    window.location.href = deepLink;
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(vlessUri);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = (server) => {
+    const uri = generateVLESSUri(server);
+    navigator.clipboard.writeText(uri);
+    setCopied(server.id);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   return (
@@ -43,131 +25,170 @@ function App() {
       <header className="hero">
         <span className="badge">Projecto VPN Angola</span>
         <h1>Internet sem Limites</h1>
-        <p style={{ color: 'var(--text-muted)' }}>Conecte-se em 1-clique com túneis VLESS</p>
+        <p style={{ color: 'var(--text-muted)' }}>Servidores testados para Unitel & Africell</p>
       </header>
 
-      <main className="glass-card">
-        <div className="status-indicator">
-          <div className="status-dot"></div>
-          Servidores Online: 12ms latência
-        </div>
-
-        <p style={{ marginBottom: '1.5rem', fontWeight: '500' }}>Escolha a sua Operadora:</p>
-        
-        <div className="operator-grid">
-          {Object.entries(OPERATORS).map(([key, op]) => (
-            <button
-              key={key}
-              className={`operator-btn ${selectedOperator === key ? 'selected' : ''}`}
-              style={{ '--accent-color': op.color, '--accent-rgb': key === 'UNITEL' ? '255, 102, 0' : '0, 173, 239' }}
-              onClick={() => setSelectedOperator(key)}
-            >
-              <Zap size={24} color={op.color} />
-              <span>{op.name}</span>
-            </button>
-          ))}
-        </div>
-
-        <a 
-          href={loading ? '#' : vlessUri}
-          className={`btn-primary ${loading ? 'disabled' : ''}`}
-          style={{ textDecoration: 'none' }}
-        >
-          {loading ? (
-            <RefreshCw className="animate-spin" size={20} />
-          ) : (
-            <Zap size={20} fill="currentColor" />
-          )}
-          {loading ? 'Gerando Túnel...' : 'CONECTAR AGORA'}
-        </a>
-
-        <div style={{ marginTop: '2rem', borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
-          <p style={{ fontSize: '0.875rem', marginBottom: '1rem', textAlign: 'center', color: '#fbbf24' }}>
-            Não tem a App de VPN? <button onClick={() => setShowModal(true)} style={{ background: 'none', border: 'none', color: '#fbbf24', textDecoration: 'underline', cursor: 'pointer', fontWeight: 'bold' }}>Baixar Aqui</button>
+      <main style={{ maxWidth: '600px', margin: '0 auto', padding: '0 1rem 4rem' }}>
+        {/* Operator Selector */}
+        <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+          <p style={{ fontWeight: '600', marginBottom: '1rem', textAlign: 'center' }}>
+            Escolha a sua Operadora:
           </p>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Configuração VLESS</span>
-            <button 
-              onClick={handleCopy}
-              style={{ background: 'none', border: 'none', color: copied ? '#10b981' : 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.875rem' }}
-            >
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-              {copied ? 'Copiado!' : 'Copiar'}
-            </button>
-          </div>
-
-          <div style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-              Ou digitalize o QR Code no seu App (NapsternetV / v2rayNG)
-            </p>
-            {vlessUri && (
-              <div className="qr-container">
-                <QRCodeSVG value={vlessUri} size={180} level="M" />
-              </div>
-            )}
+          <div className="operator-grid">
+            {[
+              { key: 'UNITEL', name: 'Unitel', color: '#ff6600', rgb: '255, 102, 0' },
+              { key: 'AFRICELL', name: 'Africell', color: '#00adef', rgb: '0, 173, 239' }
+            ].map(op => (
+              <button
+                key={op.key}
+                className={`operator-btn ${selectedOperator === op.key ? 'selected' : ''}`}
+                style={{ '--accent-color': op.color, '--accent-rgb': op.rgb }}
+                onClick={() => { setSelectedOperator(op.key); setSelectedServer(null); setShowQR(null); }}
+              >
+                <Zap size={24} color={op.color} />
+                <span>{op.name}</span>
+              </button>
+            ))}
           </div>
         </div>
+
+        {/* How to use */}
+        <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem' }}>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: '600' }}>
+            📲 Como usar:
+          </p>
+          <ol style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.8' }}>
+            <li>Escolhe a tua operadora acima.</li>
+            <li>Clica em <b>Copiar</b> num servidor abaixo.</li>
+            <li>Abre o <b>NapsternetV</b> → <b>+</b> → <b>Import from Clipboard</b>.</li>
+            <li>Clica em <b>START</b>. Pronto! 🎉</li>
+          </ol>
+        </div>
+
+        {/* Server List */}
+        <p style={{ fontWeight: '600', marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+          SERVIDORES DISPONÍVEIS ({filteredServers.length})
+        </p>
+
+        {filteredServers.map(server => {
+          const uri = generateVLESSUri(server);
+          const isCopied = copied === server.id;
+          const isShowingQR = showQR === server.id;
+
+          return (
+            <div key={server.id} className="glass-card" style={{ marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                <div>
+                  <p style={{ fontWeight: '700', fontSize: '1rem' }}>
+                    {server.flag} {server.name}
+                  </p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    📍 {server.location}
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{
+                    background: 'rgba(16,185,129,0.15)',
+                    color: '#10b981',
+                    padding: '2px 8px',
+                    borderRadius: '99px',
+                    fontSize: '0.75rem',
+                    fontWeight: '600'
+                  }}>
+                    ● ONLINE
+                  </span>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {server.ping}
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1rem', background: 'rgba(255,255,255,0.04)', borderRadius: '0.5rem', padding: '0.5rem 0.75rem' }}>
+                <span>Host: <b style={{ color: '#e2e8f0' }}>{server.host}</b></span>
+                <span style={{ margin: '0 0.5rem' }}>•</span>
+                <span>SNI: <b style={{ color: '#e2e8f0' }}>{server.sni}</b></span>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <a
+                  href={uri}
+                  className="btn-primary"
+                  style={{ flex: 2, padding: '0.75rem', fontSize: '0.9rem', textDecoration: 'none' }}
+                >
+                  <Zap size={16} fill="currentColor" />
+                  Conectar
+                </a>
+                <button
+                  onClick={() => handleCopy(server)}
+                  style={{
+                    flex: 1,
+                    padding: '0.75rem',
+                    borderRadius: '0.75rem',
+                    border: '1px solid var(--glass-border)',
+                    background: isCopied ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)',
+                    color: isCopied ? '#10b981' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    fontSize: '0.85rem',
+                    fontWeight: '600',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {isCopied ? <Check size={16} /> : <Copy size={16} />}
+                  {isCopied ? 'Copiado!' : 'Copiar'}
+                </button>
+                <button
+                  onClick={() => setShowQR(isShowingQR ? null : server.id)}
+                  style={{
+                    flex: 1,
+                    padding: '0.75rem',
+                    borderRadius: '0.75rem',
+                    border: '1px solid var(--glass-border)',
+                    background: isShowingQR ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.05)',
+                    color: isShowingQR ? 'var(--primary)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    fontSize: '0.85rem',
+                    fontWeight: '600',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <Globe size={16} />
+                  QR
+                </button>
+              </div>
+
+              {isShowingQR && (
+                <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+                  <div className="qr-container">
+                    <QRCodeSVG value={uri} size={160} level="M" />
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                    Digitaliza com o NapsternetV ou v2rayNG
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2rem', opacity: 0.5 }}>
+          © 2025 Portal VPN Angola. Se um servidor parar, tenta outro.
+        </p>
       </main>
 
-      <footer className="footer">
-        <p>&copy; 2024 Portal VPN Angola. Desenvolvido para liberdade.</p>
-        <p style={{ fontSize: '0.7rem', marginTop: '0.5rem', opacity: 0.5 }}>
-          Aviso: O Bug Host depende da operadora. Se parar de funcionar, troque de servidor no painel.
-        </p>
-      </footer>
-
-      {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content glass-card" onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginBottom: '1rem' }}>Configuração Necessária</h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-              Para a internet funcionar no telefone todo, precisas de uma App que suporte o protocolo VLESS. Escolhe uma abaixo:
-            </p>
-
-            <div className="download-grid">
-              <a href="https://play.google.com/store/apps/details?id=com.v2ray.ang" target="_blank" className="download-item">
-                <Globe size={20} />
-                <div style={{ textAlign: 'left' }}>
-                  <strong>v2rayNG</strong>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>Recomendado (Android)</div>
-                </div>
-              </a>
-              
-              <a href="https://play.google.com/store/apps/details?id=com.napsternetlabs.napsternetv" target="_blank" className="download-item">
-                <Zap size={20} />
-                <div style={{ textAlign: 'left' }}>
-                  <strong>NapsternetV</strong>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>Android & iOS</div>
-                </div>
-              </a>
-            </div>
-
-            <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '0.75rem', fontSize: '0.875rem' }}>
-              <strong>Passos:</strong>
-              <ol style={{ paddingLeft: '1.2rem', marginTop: '0.5rem' }}>
-                <li>Instala uma das Apps acima.</li>
-                <li>Volta ao site e clica em <b>CONECTAR AGORA</b>.</li>
-                <li>Na App, clica no botão <b>PLAY / START</b>.</li>
-              </ol>
-            </div>
-
-            <button className="btn-primary" style={{ marginTop: '1.5rem' }} onClick={() => setShowModal(false)}>
-              ENTENDI
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Tailwind-like animation utility for the spin */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        .animate-spin {
-          animation: spin 1s linear infinite;
-        }
+        .animate-spin { animation: spin 1s linear infinite; }
       `}</style>
     </div>
   );
