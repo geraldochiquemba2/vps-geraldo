@@ -1,5 +1,6 @@
 /**
  * Utilitário para gerar configurações VLESS para Angola (Unitel/Africell)
+ * Versão unificada: Site e Motor no mesmo domínio.
  */
 
 export const OPERATORS = {
@@ -15,34 +16,26 @@ export const OPERATORS = {
   }
 };
 
-// Configurações do seu servidor (VPS ou Cloudflare Worker)
-// No futuro, isso pode ser buscado de um admin/backend
-const SERVER_CONFIG = {
-  address: 'vps-angola.seunome.workers.dev', // O seu domínio do Worker ou IP da VPS
-  port: 443,
-  path: '/vless-query',
-  proxyIP: '8.212.181.166'
-};
-
 export const generateVLESSUri = (operatorKey) => {
   const operator = OPERATORS[operatorKey];
-  const uuid = crypto.randomUUID();
-  const name = `Túnel_Grátis_${operator.name}`;
+  const uuid = 'ad6802e8-d698-4c6e-8121-50e588fbc8d3'; // Mesmo ID do Worker
   
-  // vless://uuid@host:port?encryption=none&security=tls&sni=sni&type=ws&host=sni&path=path#name
+  // Usar o hostname atual do site automaticamente
+  const address = window.location.hostname;
+  const name = `Túnel_Unificado_${operator.name}`;
+  
   const params = new URLSearchParams({
     encryption: 'none',
     security: 'tls',
     sni: operator.bugHost,
     type: 'ws',
-    host: operator.bugHost,
-    path: SERVER_CONFIG.path
+    host: address, // O host real do WebSocket é o domínio do site
+    path: '/vless'  // O caminho definido na pasta functions/vless.js
   });
 
-  return `vless://${uuid}@${SERVER_CONFIG.address}:${SERVER_CONFIG.port}?${params.toString()}#${encodeURIComponent(name)}`;
+  return `vless://${uuid}@${address}:443?${params.toString()}#${encodeURIComponent(name)}`;
 };
 
 export const getDeepLink = (uri) => {
-  // A maioria das apps (NapsternetV, v2rayNG) registra o esquema vless://
   return uri;
 };
