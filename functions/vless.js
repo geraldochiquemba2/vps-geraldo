@@ -7,7 +7,8 @@ export async function onRequest(context) {
     const upgradeHeader = request.headers.get('Upgrade');
 
     if (upgradeHeader !== 'websocket') {
-        return new Response('VLESS Tunnel Active', { status: 200 });
+        const url = new URL(request.url);
+        return new Response(`VLESS Tunnel Active on ${url.hostname}`, { status: 200 });
     }
 
     const webSocketPair = new WebSocketPair();
@@ -26,11 +27,13 @@ export async function onRequest(context) {
 
 async function handleVLESS(webSocket) {
     let remoteSocket = null;
+    let isFirstPacket = true;
 
     webSocket.addEventListener('message', async (event) => {
         const message = event.data;
         
-        if (!remoteSocket) {
+        if (isFirstPacket) {
+            isFirstPacket = false;
             // First packet contains VLESS header
             const { address, port, decodedData } = parseVLESSHeader(message);
             
@@ -42,30 +45,38 @@ async function handleVLESS(webSocket) {
             try {
                 remoteSocket = connect({ hostname: address, port: port });
                 
-                // Forward initial data if any
-                if (decodedData && decodedData.length > 0) {
+                // VLESS Response Header: 1st byte is version (0), 2nd is addon length (0)
+                // This is MANDATORY for the client to accept the connection.
+                webSocket.send(new Uint8Array([0, 0]));
+
+                // Forward initial data if any (after the header)
+                if (decodedData && decodedData.byteLength > 0) {
                     const writer = remoteSocket.writable.getWriter();
                     await writer.write(decodedData);
                     writer.releaseLock();
                 }
 
-                // Pipe remote to websocket
+                // Pipe remote back to websocket
                 pipeRemoteToWS(remoteSocket, webSocket);
-                // Pipe websocket to remote
-                pipeWSToRemote(webSocket, remoteSocket);
                 
             } catch (err) {
                 webSocket.close();
             }
         } else {
             // Further packets are raw data
-            const writer = remoteSocket.writable.getWriter();
-            await writer.write(new Uint8Array(message));
-            writer.releaseLock();
+            if (remoteSocket && remoteSocket.writable) {
+                const writer = remoteSocket.writable.getWriter();
+                await writer.write(new Uint8Array(message));
+                writer.releaseLock();
+            }
         }
     });
 
     webSocket.addEventListener('close', () => {
+        if (remoteSocket) remoteSocket.close();
+    });
+
+    webSocket.addEventListener('error', () => {
         if (remoteSocket) remoteSocket.close();
     });
 }
@@ -73,22 +84,12 @@ async function handleVLESS(webSocket) {
 function parseVLESSHeader(buffer) {
     const view = new DataView(buffer);
     
-    // Check version (1 byte)
-    // const version = view.getUint8(0);
+    // UUID is 16 bytes starting at index 1
+    // For now we trust the client to avoid extra complexity, but in production we'd verify the UUID.
     
-    // Check UUID (16 bytes) - simplified for this implementation
-    // We assume the client is using the correct UUID
-    
-    // Read Addons length (1 byte)
     const addonLen = view.getUint8(17);
-    
-    // Read Command (1 byte) - 1 for TCP, 2 for UDP
-    const command = view.getUint8(18 + addonLen);
-    
-    // Read Port (2 bytes)
+    const command = view.getUint8(18 + addonLen); // 1: TCP, 2: UDP
     const port = view.getUint16(18 + addonLen + 1);
-    
-    // Read Address Type (1 byte)
     const addressType = view.getUint8(18 + addonLen + 3);
     
     let address = '';
@@ -107,8 +108,7 @@ function parseVLESSHeader(buffer) {
         address = new TextDecoder().decode(buffer.slice(18 + addonLen + 5, 18 + addonLen + 5 + domainLen));
         addressEnd = 18 + addonLen + 5 + domainLen;
     } else if (addressType === 3) { // IPv6
-        // Simplified
-        addressEnd = 18 + addonLen + 20;
+        addressEnd = 18 + addonLen + 20; // Simplified
     }
 
     const decodedData = buffer.slice(addressEnd);
@@ -124,12 +124,9 @@ async function pipeRemoteToWS(remote, ws) {
             ws.send(value);
         }
     } catch (e) {
-        ws.close();
+        // Silently fail or log
     } finally {
+        ws.close();
         reader.releaseLock();
     }
-}
-
-async function pipeWSToRemote(ws, remote) {
-    // Already handled in the 'message' event listener for simplicity
 }
