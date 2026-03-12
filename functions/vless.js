@@ -8,16 +8,15 @@ export async function onRequest(context) {
 
     if (upgradeHeader !== 'websocket') {
         const url = new URL(request.url);
-        return new Response(`VLESS Tunnel Active on ${url.hostname}`, { status: 200 });
+        return new Response(`VLESS Gateway Online: ${url.hostname}`, { status: 200 });
     }
 
-    const webSocketPair = new WebSocketPair();
-    const [client, server] = Object.values(webSocketPair);
+    const [client, server] = Object.values(new WebSocketPair());
 
     server.accept();
 
-    // VLESS over WebSocket implementation
-    handleVLESS(server);
+    // Handshake e Relay
+    vlessOverWS(server);
 
     return new Response(null, {
         status: 101,
@@ -25,48 +24,77 @@ export async function onRequest(context) {
     });
 }
 
-async function handleVLESS(webSocket) {
+async function vlessOverWS(webSocket) {
     let remoteSocket = null;
     let isFirstPacket = true;
 
     webSocket.addEventListener('message', async (event) => {
-        const message = event.data;
+        const chunk = event.data;
         
         if (isFirstPacket) {
             isFirstPacket = false;
-            // First packet contains VLESS header
-            const { address, port, decodedData } = parseVLESSHeader(message);
             
-            if (!address || !port) {
+            // Handshake VLESS (mínimo 18 bytes)
+            if (chunk.byteLength < 18) {
+                webSocket.close();
+                return;
+            }
+
+            const view = new DataView(chunk);
+            // Protocol Version (view.getUint8(0))
+            // UUID (16 bytes)
+            const addonLen = view.getUint8(17);
+            const addressIndex = 18 + addonLen + 3;
+            
+            if (chunk.byteLength <= addressIndex) {
+              webSocket.close();
+              return;
+            }
+
+            const port = view.getUint16(18 + addonLen + 1);
+            const addressType = view.getUint8(18 + addonLen + 3);
+            
+            let address = '';
+            let addressEnd = 0;
+
+            if (addressType === 1) { // IPv4
+                address = new Uint8Array(chunk.slice(addressIndex + 1, addressIndex + 5)).join('.');
+                addressEnd = addressIndex + 5;
+            } else if (addressType === 2) { // Domain
+                const domainLen = view.getUint8(addressIndex + 1);
+                address = new TextDecoder().decode(chunk.slice(addressIndex + 2, addressIndex + 2 + domainLen));
+                addressEnd = addressIndex + 2 + domainLen;
+            } else {
                 webSocket.close();
                 return;
             }
 
             try {
+                // Conectar ao destino final (recurso especial da Cloudflare)
                 remoteSocket = connect({ hostname: address, port: port });
                 
-                // VLESS Response Header: 1st byte is version (0), 2nd is addon length (0)
-                // This is MANDATORY for the client to accept the connection.
+                // HEADER DE RESPOSTA VLESS (Obrigatório: 00 00)
                 webSocket.send(new Uint8Array([0, 0]));
 
-                // Forward initial data if any (after the header)
-                if (decodedData && decodedData.byteLength > 0) {
+                // Passar o resto dos dados se existirem no primeiro pacote
+                const extraData = chunk.slice(addressEnd);
+                if (extraData.byteLength > 0) {
                     const writer = remoteSocket.writable.getWriter();
-                    await writer.write(decodedData);
+                    await writer.write(new Uint8Array(extraData));
                     writer.releaseLock();
                 }
 
-                // Pipe remote back to websocket
-                pipeRemoteToWS(remoteSocket, webSocket);
+                // Fluxo de dados bidireccional
+                relayData(remoteSocket, webSocket);
                 
             } catch (err) {
                 webSocket.close();
             }
         } else {
-            // Further packets are raw data
+            // Pacotes subsequentes (Raw Data)
             if (remoteSocket && remoteSocket.writable) {
                 const writer = remoteSocket.writable.getWriter();
-                await writer.write(new Uint8Array(message));
+                await writer.write(new Uint8Array(chunk));
                 writer.releaseLock();
             }
         }
@@ -81,50 +109,17 @@ async function handleVLESS(webSocket) {
     });
 }
 
-function parseVLESSHeader(buffer) {
-    const view = new DataView(buffer);
-    
-    // UUID is 16 bytes starting at index 1
-    // For now we trust the client to avoid extra complexity, but in production we'd verify the UUID.
-    
-    const addonLen = view.getUint8(17);
-    const command = view.getUint8(18 + addonLen); // 1: TCP, 2: UDP
-    const port = view.getUint16(18 + addonLen + 1);
-    const addressType = view.getUint8(18 + addonLen + 3);
-    
-    let address = '';
-    let addressEnd = 0;
-
-    if (addressType === 1) { // IPv4
-        address = [
-            view.getUint8(18 + addonLen + 4),
-            view.getUint8(18 + addonLen + 5),
-            view.getUint8(18 + addonLen + 6),
-            view.getUint8(18 + addonLen + 7)
-        ].join('.');
-        addressEnd = 18 + addonLen + 8;
-    } else if (addressType === 2) { // Domain
-        const domainLen = view.getUint8(18 + addonLen + 4);
-        address = new TextDecoder().decode(buffer.slice(18 + addonLen + 5, 18 + addonLen + 5 + domainLen));
-        addressEnd = 18 + addonLen + 5 + domainLen;
-    } else if (addressType === 3) { // IPv6
-        addressEnd = 18 + addonLen + 20; // Simplified
-    }
-
-    const decodedData = buffer.slice(addressEnd);
-    return { address, port, decodedData };
-}
-
-async function pipeRemoteToWS(remote, ws) {
+async function relayData(remote, ws) {
     const reader = remote.readable.getReader();
     try {
         while (true) {
             const { value, done } = await reader.read();
             if (done) break;
+            // Enviar dados vindos da internet para a App de VPN
             ws.send(value);
         }
     } catch (e) {
-        // Silently fail or log
+        // Erro silencioso
     } finally {
         ws.close();
         reader.releaseLock();
