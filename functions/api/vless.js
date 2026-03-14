@@ -1,31 +1,23 @@
 import { connect } from 'cloudflare:sockets';
 
-// Use a fallback UUID if none is provided, but we skip validation for maximize compatibility
 const userID = 'ad6802e8-d698-4c6e-8121-50e588fbc8d3';
 
 export async function onRequest(context) {
     const { request } = context;
-    const upgradeHeader = request.headers.get('Upgrade');
-
-    if (upgradeHeader !== 'websocket') {
-        return new Response('VLESS Engine Active. Version 2.4.0', { status: 200 });
+    if (request.headers.get('Upgrade') !== 'websocket') {
+        return new Response('VLESS Engine Active (v3.0 EdgeTunnel Spec)', { status: 200 });
     }
 
-    const [client, server] = Object.values(new WebSocketPair());
-    server.accept();
+    const [client, webSocket] = Object.values(new WebSocketPair());
+    webSocket.accept();
 
-    // Early Data support for low ping (0-RTT)
-    const earlyDataHeader = request.headers.get('sec-websocket-protocol');
+    const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
     let earlyData = null;
     if (earlyDataHeader) {
-        try {
-            earlyData = base64ToArrayBuffer(earlyDataHeader);
-        } catch (e) {
-            console.error('EarlyData error:', e);
-        }
+        earlyData = base64ToArrayBuffer(earlyDataHeader);
     }
 
-    handleVlessSession(server, earlyData);
+    handleVlessSession(webSocket, earlyData);
 
     return new Response(null, {
         status: 101,
@@ -36,131 +28,140 @@ export async function onRequest(context) {
 function base64ToArrayBuffer(base64) {
     base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
     const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
         bytes[i] = binary.charCodeAt(i);
     }
     return bytes.buffer;
 }
 
-async function handleVlessSession(ws, earlyData) {
+// WS_READY_STATE_OPEN
+const WS_READY_STATE_OPEN = 1;
+
+async function handleVlessSession(webSocket, earlyData) {
     let remoteSocket = null;
     let isHeaderProcessed = false;
     let remoteWriter = null;
 
-    async function handleChunk(chunk) {
+    async function processMessage(chunk) {
         if (!isHeaderProcessed) {
+            isHeaderProcessed = true;
             try {
-                const header = await parseVlessHeader(chunk);
-                if (!header) {
-                    ws.close();
-                    return;
-                }
-
-                // Connect to remote target
-                remoteSocket = connect({ hostname: header.address, port: header.port });
-                remoteWriter = remoteSocket.writable.getWriter();
-
-                // Send VLESS response: [Protocol Version, Addon Length (0)]
-                // We use the version from the client's request
-                ws.send(new Uint8Array([header.version, 0]));
-
-                isHeaderProcessed = true;
-
-                // Send remaining payload from first packet
-                if (header.payload.byteLength > 0) {
-                    await remoteWriter.write(new Uint8Array(header.payload));
-                }
-
-                // Start relaying from remote back to websocket
-                relayRemoteToWS(remoteSocket, ws);
+                await parseAndConnect(chunk);
             } catch (err) {
-                console.error('Handshake failed:', err);
-                ws.close();
+                console.error("Handshake error", err);
+                webSocket.close();
             }
         } else {
             if (remoteWriter) {
                 try {
                     await remoteWriter.write(new Uint8Array(chunk));
                 } catch (e) {
-                    cleanup();
+                    webSocket.close();
                 }
             }
         }
     }
 
-    async function parseVlessHeader(chunk) {
-        if (chunk.byteLength < 24) return null; // Minimum header size
+    async function parseAndConnect(vlessBuffer) {
+        if (vlessBuffer.byteLength < 24) throw new Error('invalid data');
 
-        const view = new DataView(chunk);
-        const version = view.getUint8(0);
-        // We skip UUID validation to avoid mismatch issues
+        const version = new Uint8Array(vlessBuffer.slice(0, 1))[0];
         
-        const addonLen = view.getUint8(17);
-        const command = view.getUint8(18 + addonLen); // 1 = TCP, 2 = UDP
-        const port = view.getUint16(18 + addonLen + 1);
-        const addressType = view.getUint8(18 + addonLen + 3);
+        // Skip user Validation for simplicity and maximum compatibility
         
-        let address = '';
-        let addressEnd = 0;
-        let addressIndex = 18 + addonLen + 4;
+        const optLength = new Uint8Array(vlessBuffer.slice(17, 18))[0];
+        const command = new Uint8Array(vlessBuffer.slice(18 + optLength, 18 + optLength + 1))[0];
+
+        if (command !== 1) throw new Error('Only TCP supported'); // Only TCP
+
+        const portIndex = 18 + optLength + 1;
+        const portRemote = new DataView(vlessBuffer.slice(portIndex, portIndex + 2)).getUint16(0);
+
+        let addressIndex = portIndex + 2;
+        const addressType = new Uint8Array(vlessBuffer.slice(addressIndex, addressIndex + 1))[0];
+        
+        let addressLength = 0;
+        let addressValueIndex = addressIndex + 1;
+        let addressValue = '';
 
         if (addressType === 1) { // IPv4
-            address = new Uint8Array(chunk.slice(addressIndex, addressIndex + 4)).join('.');
-            addressEnd = addressIndex + 4;
+            addressLength = 4;
+            addressValue = new Uint8Array(vlessBuffer.slice(addressValueIndex, addressValueIndex + addressLength)).join('.');
         } else if (addressType === 2) { // Domain
-            const domainLen = view.getUint8(addressIndex);
-            address = new TextDecoder().decode(chunk.slice(addressIndex + 1, addressIndex + 1 + domainLen));
-            addressEnd = addressIndex + 1 + domainLen;
+            addressLength = new Uint8Array(vlessBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+            addressValueIndex += 1;
+            addressValue = new TextDecoder().decode(vlessBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
         } else if (addressType === 3) { // IPv6
-            // Basic IPv6 support
-            address = Array.from(new Uint16Array(chunk.slice(addressIndex, addressIndex + 16)))
-                .map(x => x.toString(16)).join(':');
-            addressEnd = addressIndex + 16;
+            addressLength = 16;
+            const dataView = new DataView(vlessBuffer.slice(addressValueIndex, addressValueIndex + addressLength));
+            const ipv6 = [];
+            for (let i = 0; i < 8; i++) {
+                ipv6.push(dataView.getUint16(i * 2).toString(16));
+            }
+            addressValue = ipv6.join(':');
         } else {
-            return null;
+            throw new Error(`Invalid addressType: ${addressType}`);
         }
 
-        return {
-            version,
-            address,
-            port,
-            payload: chunk.slice(addressEnd)
-        };
+        const rawDataIndex = addressValueIndex + addressLength;
+        const rawClientData = vlessBuffer.slice(rawDataIndex);
+
+        remoteSocket = connect({ hostname: addressValue, port: portRemote });
+        remoteWriter = remoteSocket.writable.getWriter();
+        
+        // Write the initial client payload
+        if (rawClientData.byteLength > 0) {
+            await remoteWriter.write(new Uint8Array(rawClientData));
+        }
+        remoteWriter.releaseLock();
+
+        // This is the critical fix from zizifn: 
+        // We MUST combine the VLESS response header with the first chunk of data from the remote socket
+        const vlessResponseHeader = new Uint8Array([version, 0]);
+        remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader);
     }
 
-    function cleanup() {
-        if (remoteWriter) {
-            try { remoteWriter.releaseLock(); } catch(e) {}
-        }
-        if (remoteSocket) {
-            try { remoteSocket.close(); } catch(e) {}
-        }
-        try { ws.close(); } catch(e) {}
-    }
+    if (earlyData) await processMessage(earlyData);
 
-    if (earlyData) await handleChunk(earlyData);
-
-    ws.addEventListener('message', async (event) => {
-        await handleChunk(event.data);
+    webSocket.addEventListener('message', async (event) => {
+        await processMessage(event.data);
     });
 
-    ws.addEventListener('close', cleanup);
-    ws.addEventListener('error', cleanup);
+    const cleanup = () => {
+        if (remoteSocket) {
+            try { remoteSocket.close(); } catch(e){}
+        }
+    };
+    webSocket.addEventListener('close', cleanup);
+    webSocket.addEventListener('error', cleanup);
 }
 
-async function relayRemoteToWS(remote, ws) {
-    const reader = remote.readable.getReader();
-    try {
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            ws.send(value);
+async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader) {
+    let vlessHeader = vlessResponseHeader;
+    
+    await remoteSocket.readable.pipeTo(new WritableStream({
+        async write(chunk, controller) {
+            if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+                controller.error('webSocket not open');
+            }
+            if (vlessHeader) {
+                // Combine header and chunk into a single WebSocket frame
+                webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
+                vlessHeader = null;
+            } else {
+                webSocket.send(chunk);
+            }
+        },
+        close() {
+            try { webSocket.close(); } catch(e){}
+        },
+        abort(reason) {
+            try { webSocket.close(); } catch(e){}
         }
-    } catch (e) {
-        console.error('Relay error:', e);
-    } finally {
-        try { reader.releaseLock(); } catch(e) {}
-        try { ws.close(); } catch(e) {}
-    }
+    })).catch((error) => {
+        console.error("Pipe error:", error);
+        try { webSocket.close(); } catch(e){}
+    });
 }
