@@ -6,79 +6,84 @@
 export const SERVERS = [
   {
     id: 1,
-    name: 'Servidor AF-1',
+    name: 'Unitel - Money Speed',
     operator: 'UNITEL',
     flag: '🇦🇴',
-    location: 'África do Sul',
-    host: 'afsouth.opentunnel.net',
-    port: 443,
-    uuid: 'b4f3d4a1-5e6b-4c3e-8d2f-1a2b3c4d5e6f',
-    sni: 'unitelmoney.ao',
-    path: '/vless',
-    type: 'ws',
-    security: 'tls',
-    color: '#ff6600',
-    ping: '~120ms'
-  },
-  {
-    id: 2,
-    name: 'Servidor CF-1',
-    operator: 'UNITEL',
-    flag: '🌐',
-    location: 'Cloudflare Global',
-    host: 'visa.com',
+    location: 'Cloudflare Edge',
+    host: 'unitelmoney.ao', // The BUG HOST (SNI)
     port: 443,
     uuid: 'ad6802e8-d698-4c6e-8121-50e588fbc8d3',
     sni: 'unitelmoney.ao',
-    path: '/?ed=2560',
+    path: '/api/vless',
     type: 'ws',
     security: 'tls',
     color: '#ff6600',
     ping: '~80ms'
   },
   {
+    id: 2,
+    name: 'Unitel - Global Net',
+    operator: 'UNITEL',
+    flag: '🌐',
+    location: 'Cloudflare Global',
+    host: 'unitel.it.ao',
+    port: 443,
+    uuid: 'ad6802e8-d698-4c6e-8121-50e588fbc8d3',
+    sni: 'unitel.it.ao',
+    path: '/api/vless',
+    type: 'ws',
+    security: 'tls',
+    color: '#ff6600',
+    ping: '~95ms'
+  },
+  {
     id: 3,
-    name: 'Servidor FB-1',
+    name: 'Africell - FB Speed',
     operator: 'AFRICELL',
     flag: '🇦🇴',
-    location: 'Europa',
-    host: 'cdn.cloudflare.com',
+    location: 'Cloudflare Edge',
+    host: 'facebook.com',
     port: 443,
     uuid: 'ad6802e8-d698-4c6e-8121-50e588fbc8d3',
     sni: 'facebook.com',
-    path: '/vless',
+    path: '/api/vless',
     type: 'ws',
     security: 'tls',
     color: '#00adef',
-    ping: '~90ms'
+    ping: '~110ms'
   },
   {
     id: 4,
-    name: 'Servidor WA-1',
+    name: 'Africell - WA Zero',
     operator: 'AFRICELL',
     flag: '🌐',
     location: 'Cloudflare Global',
-    host: 'whatsapp.com',
+    host: 'web.whatsapp.com',
     port: 443,
     uuid: 'ad6802e8-d698-4c6e-8121-50e588fbc8d3',
     sni: 'web.whatsapp.com',
-    path: '/?ed=2560',
+    path: '/api/vless',
     type: 'ws',
     security: 'tls',
     color: '#00adef',
-    ping: '~95ms'
+    ping: '~120ms'
   }
 ];
 
 export const generateVLESSUri = (server) => {
+  // Use the current window hostname if available, else fallback to server host
+  const gateway = typeof window !== 'undefined' ? window.location.hostname : 'your-worker.workers.dev';
+  
   const params = new URLSearchParams({
     encryption: 'none',
     security: server.security,
     sni: server.sni,
     type: server.type,
-    host: server.host,
-    path: server.path
+    host: server.sni, // Usually same as SNI for bug hosts
+    path: server.path,
+    fp: 'chrome' // Fingerprint for better stealth
   });
-  const name = `${server.name}_${server.operator}`;
-  return `vless://${server.uuid}@${server.host}:${server.port}?${params.toString()}#${encodeURIComponent(name)}`;
+  
+  const name = `${server.name}_${server.operator}_2026`;
+  return `vless://${server.uuid}@${gateway}:${server.port}?${params.toString()}#${encodeURIComponent(name)}`;
 };
