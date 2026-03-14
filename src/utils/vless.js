@@ -76,15 +76,18 @@ export const generateVLESSUri = (server) => {
   
   const params = new URLSearchParams({
     encryption: 'none',
-    flow: '',
     security: server.security,
-    sni: server.sni,
+    sni: server.sni, // The Bug Host (e.g., unitelmoney.ao)
     fp: 'chrome',
     type: server.type,
-    host: gateway,
+    host: gateway, // The Worker Domain (e.g., vps-geraldo.pages.dev)
     path: server.path
   });
   
   const name = `${server.name} | 2026`;
-  return `vless://${server.uuid}@${gateway}:${server.port}?${params.toString()}#${encodeURIComponent(name)}`;
+  // CRITICAL: The Address MUST be a Cloudflare IP or the Bug Host itself. 
+  // If we use gateway as address, Cloudflare blocks it (Error 1101/421).
+  const address = server.host; // e.g., unitelmoney.ao
+  
+  return `vless://${server.uuid}@${address}:${server.port}?${params.toString()}#${encodeURIComponent(name)}`;
 };
