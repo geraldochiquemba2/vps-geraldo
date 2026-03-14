@@ -1,54 +1,26 @@
-import { Hono } from 'hono';
 import { connect } from 'cloudflare:sockets';
 
-const app = new Hono();
-
-// VLESS UUID (Default)
-const USER_ID = 'ad6802e8-d698-4c6e-8121-50e588fbc8d3';
-
-// Health Check API
-app.get('/api/health', (c) => {
-  return c.json({
-    status: 'online',
-    version: '2.1.0',
-    platform: 'Cloudflare Workers (Unified Architecture)',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// VLESS Gateway Logic
-app.all('/api/vless', async (c) => {
-  const request = c.req.raw;
+export async function onRequest(context) {
+  const { request } = context;
   const upgradeHeader = request.headers.get('Upgrade');
 
-  // If not a websocket, return status info
   if (upgradeHeader !== 'websocket') {
-    return c.text(`VLESS Gateway active at ${new URL(request.url).hostname}. Use WebSocket upgrade.`, 200);
+    return new Response(`VLESS Gateway Online (Pages). Use WebSocket upgrade.`, { status: 200 });
   }
 
   const [client, server] = Object.values(new WebSocketPair());
   server.accept();
 
-  // Support for 0-RTT / Early Data
-  const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-  
-  handleVlessConnection(server, earlyDataHeader);
+  // Handshake e Relay
+  handleVlessOverWS(server);
 
   return new Response(null, {
     status: 101,
     webSocket: client,
   });
-});
+}
 
-// Assets Fallback (served by Cloudflare Assets binding)
-app.all('*', async (c) => {
-  if (c.env.ASSETS) {
-    return c.env.ASSETS.fetch(c.req.raw);
-  }
-  return c.text('Assets not configured. Please build and deploy with Wrangler.', 500);
-});
-
-async function handleVlessConnection(webSocket, earlyData) {
+async function handleVlessOverWS(webSocket) {
   let remoteSocket = null;
   let isFirstPacket = true;
 
@@ -58,14 +30,12 @@ async function handleVlessConnection(webSocket, earlyData) {
     if (isFirstPacket) {
       isFirstPacket = false;
       
-      // Basic VLESS Handshake Check
       if (chunk.byteLength < 18) {
         webSocket.close();
         return;
       }
 
       const view = new DataView(chunk);
-      // Skip protocol version (0), UUID (1-16), and addon length (17)
       const addonLen = view.getUint8(17);
       const addressIndex = 18 + addonLen + 3;
       
@@ -93,13 +63,9 @@ async function handleVlessConnection(webSocket, earlyData) {
       }
 
       try {
-        // Connect to the target using Cloudflare Sockets
         remoteSocket = connect({ hostname: address, port: port });
-        
-        // VLESS Response Header (Fixed 00 00)
         webSocket.send(new Uint8Array([0, 0]));
 
-        // Send remaining data from the first packet
         const extraData = chunk.slice(addressEnd);
         if (extraData.byteLength > 0) {
           const writer = remoteSocket.writable.getWriter();
@@ -107,8 +73,7 @@ async function handleVlessConnection(webSocket, earlyData) {
           writer.releaseLock();
         }
 
-        // Bridge data
-        bridge(remoteSocket, webSocket);
+        relayData(remoteSocket, webSocket);
         
       } catch (err) {
         webSocket.close();
@@ -131,7 +96,7 @@ async function handleVlessConnection(webSocket, earlyData) {
   });
 }
 
-async function bridge(remote, ws) {
+async function relayData(remote, ws) {
   const reader = remote.readable.getReader();
   try {
     while (true) {
@@ -140,11 +105,8 @@ async function bridge(remote, ws) {
       ws.send(value);
     }
   } catch (e) {
-    // Connection lost
   } finally {
     ws.close();
     reader.releaseLock();
   }
 }
-
-export default app;
