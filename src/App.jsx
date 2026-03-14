@@ -8,6 +8,14 @@ function App() {
   const [selectedServer, setSelectedServer] = useState(null);
   const [copied, setCopied] = useState(null);
   const [showQR, setShowQR] = useState(null);
+  const [apiStatus, setApiStatus] = useState('checking');
+
+  React.useEffect(() => {
+    fetch('/api/health')
+      .then(res => res.json())
+      .then(data => setApiStatus(data.status === 'online' ? 'online' : 'error'))
+      .catch(() => setApiStatus('error'));
+  }, []);
 
   const filteredServers = SERVERS.filter(s => s.operator === selectedOperator);
 
@@ -23,7 +31,16 @@ function App() {
       <div className="animated-bg"></div>
 
       <header className="hero">
-        <span className="badge">Projecto VPN Angola</span>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '1rem' }}>
+          <span className="badge">Projecto VPN Angola</span>
+          <span className="badge" style={{ 
+            background: apiStatus === 'online' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+            color: apiStatus === 'online' ? '#10b981' : '#ef4444',
+            border: 'none'
+          }}>
+            {apiStatus === 'online' ? 'Gateway Activo' : apiStatus === 'checking' ? 'A verificar...' : 'Gateway Offline'}
+          </span>
+        </div>
         <h1>Internet sem Limites</h1>
         <p style={{ color: 'var(--text-muted)' }}>Servidores testados para Unitel & Africell</p>
       </header>
