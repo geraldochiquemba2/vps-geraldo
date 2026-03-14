@@ -79,7 +79,7 @@ export const generateVLESSUri = (server) => {
     security: server.security,
     sni: server.sni,
     type: server.type,
-    host: server.sni, // Usually same as SNI for bug hosts
+    host: gateway, // Must be the Cloudflare domain for routing
     path: server.path,
     fp: 'chrome' // Fingerprint for better stealth
   });
