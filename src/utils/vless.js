@@ -76,14 +76,15 @@ export const generateVLESSUri = (server) => {
   
   const params = new URLSearchParams({
     encryption: 'none',
+    flow: '',
     security: server.security,
     sni: server.sni,
+    fp: 'chrome',
     type: server.type,
-    host: gateway, // Must be the Cloudflare domain for routing
-    path: server.path,
-    fp: 'chrome' // Fingerprint for better stealth
+    host: gateway,
+    path: server.path
   });
   
-  const name = `${server.name}_${server.operator}_2026`;
+  const name = `${server.name} | 2026`;
   return `vless://${server.uuid}@${gateway}:${server.port}?${params.toString()}#${encodeURIComponent(name)}`;
 };
